@@ -1,0 +1,37 @@
+[project]
+name = "devpilot"
+version = "0.1.0"
+description = "多 Agent 交付流水线 —— 一句话需求到可运行代码，编排 / 状态机 / 沙箱 / 断点恢复"
+requires-python = ">=3.11"
+dependencies = [
+    "litellm",
+    "httpx",
+    "pydantic",
+    "python-dotenv",
+    "rich",
+    "fastapi",
+    "uvicorn",
+    # FastAPI 的 UploadFile / File(...) 靠它解析 multipart，缺了会在 create_app
+    # 阶段直接报错（表现为"服务起不来"，而不是"某功能不可用"）。
+    "python-multipart",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[project.scripts]
+devpilot = "devpilot.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/devpilot"]
+
+[tool.pytest.ini_options]
+# 只收集我们自己的 tests/。var/ 下是**沙箱工作区** —— 里面是被测模型生成的
+# 项目，同样含 test_*.py。不排掉的话，`pytest` 会跑进别人的半成品里，
+# 收集阶段就因 SyntaxError 失败，看起来像"我们的测试挂了"，实际无关。
+testpaths = ["tests"]
+norecursedirs = ["var", ".venv", "node_modules", ".git", "gateway"]

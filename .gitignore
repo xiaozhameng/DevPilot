@@ -1,0 +1,33 @@
+# 环境与密钥
+.env
+.venv/
+
+# 运行产物
+var/
+# 每个任务的沙箱工作目录（Agent 在里面真的写文件、跑测试）
+var/workspaces/
+# 检查点数据库：断点恢复靠它，但它属于运行时状态，不入库
+var/checkpoints.db
+
+# ---- Java 网关 ----
+gateway/target/
+gateway/var/
+*.class
+
+# 评测报告（本地跑出来的，每次数字可能不同）
+evals/report*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# IDE / 系统
+.idea/
+.vscode/
+.DS_Store

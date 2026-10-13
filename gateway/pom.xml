@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.devpilot</groupId>
+    <artifactId>devpilot-gateway</artifactId>
+    <version>0.1.0</version>
+    <name>devpilot-gateway</name>
+    <description>DevPilot 的 Java 网关：任务表 / 状态机 / 幂等 / 租约与超时重派 / SSE 中继</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- 用 WebFlux 而不是 WebMVC，理由只有一条但很硬：SSE 中继。
+             MVC 的 SseEmitter 是"一个连接占一个 Tomcat 线程"，而一次交付
+             要跑好几分钟、中间还可能停在人工审批上几十分钟。
+             几百个并发就能把线程池占满，导致整个网关无响应。
+             WebFlux 用事件循环，等待期间不占线程 —— 这正是流式中继该有的形态。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- 刻意**没有**引入数据库依赖。
+             任务表目前是内存实现（ConcurrentHashMap + 显式同步）。
+             这不是简化，是一个有意的取舍，见 TaskStore 的类注释：
+             单机内的"不重不漏"靠 putIfAbsent 的原子性就够了；
+             真正的难点在**多副本**，那时才需要把这张表换成
+             带唯一索引的数据库 —— 而那是一次架构变更，不是加个依赖。 -->
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

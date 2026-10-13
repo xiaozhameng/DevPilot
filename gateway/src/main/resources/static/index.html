@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevPilot · 多 Agent 交付流水线</title>
+<style>
+/* ============================================================
+   配色：用 CSS 变量集中管理，并跟随系统深浅色。
+   为什么不用一个写死的深色主题：演示时投影、投屏、录屏三种场景
+   的对比度需求完全不同，跟着系统走最省事，也不会出现
+   "深色文字配深色背景"这种投影一开就看不见的事故。
+   ============================================================ */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --panel-2: #f0f2f5;
+  --line: #dfe3e8;
+  --text: #1b1f24;
+  --text-dim: #5c6673;
+  --text-faint: #8b95a3;
+  --accent: #2f6fed;
+  --accent-soft: #e8f0fe;
+
+  --ok: #1a8f4a;
+  --ok-soft: #e3f6ea;
+  --warn: #b4690e;
+  --warn-soft: #fdf1dd;
+  --err: #cf3b3b;
+  --err-soft: #fdeaea;
+  --run: #2f6fed;
+  --run-soft: #e8f0fe;
+  --idle: #7a8592;
+  --idle-soft: #eef0f3;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --panel: #1b1f26;
+    --panel-2: #22272f;
+    --line: #2d333c;
+    --text: #e6e9ee;
+    --text-dim: #a3adba;
+    --text-faint: #79838f;
+    --accent: #6c9bff;
+    --accent-soft: #1d2a44;
+
+    --ok: #4ec97f;
+    --ok-soft: #14301f;
+    --warn: #e0a44a;
+    --warn-soft: #33260f;
+    --err: #f0716f;
+    --err-soft: #35191a;
+    --run: #6c9bff;
+    --run-soft: #1d2a44;
+    --idle: #8d97a4;
+    --idle-soft: #242a32;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+code, pre, .mono { font-family: var(--mono); }
+
+/* ---------- 顶栏 ---------- */
+header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 18px; background: var(--panel);
+  border-bottom: 1px solid var(--line); flex: none;
+}
+.brand { font-weight: 650; font-size: 15px; letter-spacing: .2px; }
+.brand span { color: var(--text-faint); font-weight: 400; margin-left: 8px; font-size: 13px; }
+.spacer { flex: 1; }
+.health {
+  display: flex; align-items: center; gap: 7px; padding: 5px 11px;
+  border-radius: 999px; background: var(--panel-2); font-size: 12px;
+  color: var(--text-dim); border: 1px solid var(--line); cursor: pointer;
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); flex: none; }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--err); }
+
+/* ---------- 主体 ---------- */
+main { flex: 1; display: flex; min-height: 0; }
+aside {
+  width: 372px; flex: none; border-right: 1px solid var(--line);
+  background: var(--panel); display: flex; flex-direction: column; min-height: 0;
+}
+section.detail { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.block { border-bottom: 1px solid var(--line); padding: 14px 16px; }
+.block.grow { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.block h2 {
+  margin: 0 0 10px; font-size: 11px; font-weight: 650; letter-spacing: .8px;
+  text-transform: uppercase; color: var(--text-faint);
+}
+
+/* ---------- 表单 ---------- */
+textarea {
+  width: 100%; min-height: 74px; resize: vertical; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); font-family: inherit; font-size: 13px;
+  line-height: 1.5;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+input[type=text] {
+  flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg); color: var(--text); font-size: 12px;
+  font-family: var(--mono);
+}
+input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button {
+  font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  cursor: pointer; white-space: nowrap; transition: filter .12s;
+}
+button:hover:not(:disabled) { filter: brightness(.96); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 550; }
+button.ok { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); font-weight: 550; }
+button.err { background: var(--err-soft); border-color: var(--err); color: var(--err); }
+button.sm { padding: 4px 10px; font-size: 12px; border-radius: 7px; }
+.hint { color: var(--text-faint); font-size: 11.5px; margin-top: 7px; line-height: 1.5; }
+
+/* ---------- 任务列表 ---------- */
+.list { overflow: auto; flex: 1; min-height: 0; }
+.task {
+  display: flex; gap: 10px; align-items: flex-start; padding: 9px 16px;
+  border-left: 3px solid transparent; cursor: pointer; border-bottom: 1px solid var(--line);
+}
+.task:hover { background: var(--panel-2); }
+.task.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.task .id { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.task .req {
+  font-size: 12.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 240px;
+}
+.task .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* ---------- 状态徽章 ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 550; flex: none;
+  background: var(--idle-soft); color: var(--idle);
+}
+.badge.succeeded { background: var(--ok-soft); color: var(--ok); }
+.badge.failed { background: var(--err-soft); color: var(--err); }
+.badge.cancelled { background: var(--idle-soft); color: var(--idle); }
+.badge.running { background: var(--run-soft); color: var(--run); }
+.badge.dispatched { background: var(--run-soft); color: var(--run); }
+.badge.waiting_approval { background: var(--warn-soft); color: var(--warn); }
+.badge.timeout { background: var(--warn-soft); color: var(--warn); }
+.task .badge { font-size: 11px; padding: 2px 8px; }
+
+/* ---------- 节点流转 ---------- */
+.nodes { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+.node {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px;
+  background: var(--panel-2); font-size: 12.5px; position: relative;
+  display: flex; align-items: center; gap: 6px;
+}
+.node .n-name { font-family: var(--mono); font-size: 12px; }
+.node .n-visits {
+  font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums;
+}
+.node.done { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.node.current { border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.node.failed { border-color: var(--err); background: var(--err-soft); color: var(--err); }
+.node.revisit::after {
+  content: "↺"; position: absolute; top: -8px; right: -6px; font-size: 12px;
+  color: var(--warn); background: var(--panel); border-radius: 50%; padding: 0 1px;
+}
+.arrow { color: var(--text-faint); font-size: 12px; }
+.loop-note { margin-top: 9px; font-size: 11.5px; color: var(--text-dim); line-height: 1.7; }
+.loop-note b { color: var(--warn); font-weight: 600; }
+
+/* ---------- 事件流 ---------- */
+.events {
+  flex: 1; min-height: 0; overflow: auto; font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.65; padding: 2px 0;
+}
+.ev { display: flex; gap: 8px; padding: 3px 16px; align-items: baseline; }
+.ev:hover { background: var(--panel-2); }
+.ev .seq { color: var(--text-faint); min-width: 30px; text-align: right; flex: none;
+  font-variant-numeric: tabular-nums; }
+.ev .t { color: var(--text-faint); min-width: 62px; flex: none; }
+.ev .ty {
+  min-width: 132px; flex: none; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ev .ty.t-node { color: var(--accent); }
+.ev .ty.t-ok { color: var(--ok); }
+.ev .ty.t-err { color: var(--err); }
+.ev .ty.t-warn { color: var(--warn); }
+.ev .ty.t-sys { color: var(--text-faint); font-weight: 400; }
+.ev .body { color: var(--text-dim); overflow-wrap: anywhere; }
+
+/* ---------- 详情头 ---------- */
+.detail-head {
+  display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+  border-bottom: 1px solid var(--line); flex-wrap: wrap; background: var(--panel);
+}
+.detail-head h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.kv { display: flex; gap: 14px; font-size: 11.5px; color: var(--text-faint); flex-wrap: wrap; }
+.kv b { color: var(--text-dim); font-weight: 550; }
+
+/* 降级提示条。
+   任务"成功"和任务"成功且合格"是两件事 —— 门禁刹车用尽时会接受不达标的交付，
+   此时流水线照样报 succeeded。不把这条差异显式画出来，看板就会骗人。 */
+.banner-degraded {
+  margin-top: 9px; padding: 7px 11px; border-radius: 8px;
+  background: var(--warn-soft); color: var(--warn);
+  font-size: 12px; line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+}
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab {
+  padding: 5px 12px; border-radius: 7px; font-size: 12.5px; cursor: pointer;
+  color: var(--text-dim); border: 1px solid transparent;
+}
+.tab.active { background: var(--panel-2); color: var(--text); border-color: var(--line); font-weight: 550; }
+
+/* ---------- 空态 ---------- */
+.empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; color: var(--text-faint); text-align: center;
+  padding: 40px;
+}
+.empty h3 { margin: 0; font-size: 15px; color: var(--text-dim); font-weight: 550; }
+.empty p { margin: 0; font-size: 13px; max-width: 400px; line-height: 1.7; }
+
+/* ---------- 产物 ---------- */
+.files { overflow: auto; flex: 1; min-height: 0; padding: 4px 0; }
+.file {
+  display: flex; align-items: center; gap: 10px; padding: 7px 18px;
+  cursor: pointer; font-size: 12.5px;
+}
+.file:hover { background: var(--panel-2); }
+.file .f-path { font-family: var(--mono); flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.file .f-size { color: var(--text-faint); font-size: 11px; flex: none; }
+
+/* ---------- 弹层 ---------- */
+.modal {
+  position: fixed; inset: 0; background: rgba(10,12,16,.5); display: none;
+  align-items: center; justify-content: center; padding: 40px; z-index: 40;
+}
+.modal.open { display: flex; }
+.modal-box {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  width: min(880px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.modal-head {
+  display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+  border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 12.5px;
+}
+.modal-head button { margin-left: auto; }
+.modal-body { overflow: auto; padding: 14px 16px; }
+.modal-body pre {
+  margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px;
+  line-height: 1.6; color: var(--text-dim);
+}
+.toast {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); padding: 9px 18px; border-radius: 9px;
+  font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">DevPilot<span>多 Agent 交付流水线</span></div>
+  <div class="spacer"></div>
+  <div class="health" id="health" title="点击刷新">
+    <span class="dot" id="healthDot"></span><span id="healthText">连接中…</span>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <div class="block">
+      <h2>提交新交付</h2>
+      <textarea id="requirement" placeholder="一句话描述需求，例如：做一个支持增删改查的待办事项 API，带单元测试"></textarea>
+      <div class="row">
+        <input type="text" id="idemKey" placeholder="幂等键（可选）">
+      </div>
+      <div class="row">
+        <button class="primary" id="submitBtn" style="flex:1">提交并启动流水线</button>
+      </div>
+      <div class="hint">
+        填了幂等键再点两次提交，只会产生一个任务 —— 这是网关的
+        <code>putIfAbsent</code> 原子占位在起作用。不填则每次都新建。
+      </div>
+    </div>
+
+    <div class="block">
+      <h2>流水线结构</h2>
+      <div class="nodes" id="pipelineNodes"></div>
+      <div class="loop-note" id="pipelineLoops"></div>
+    </div>
+
+    <div class="block grow" style="padding-bottom:0">
+      <h2 style="padding:0 0 10px">任务列表</h2>
+    </div>
+    <div class="list" id="taskList"></div>
+  </aside>
+
+  <section class="detail" id="detail"></section>
+</main>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <div class="modal-head"><span id="modalTitle"></span><button class="sm" onclick="closeModal()">关闭</button></div>
+    <div class="modal-body"><pre id="modalBody"></pre></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   前端只做一件事：把事件渲染出来。
+   它不"查询系统在干什么"，也不自己推断状态 ——
+   所有状态都是从事件流与详情接口读来的。
+   这条界线让内核换实现时前端不用动。
+   ============================================================ */
+
+const $ = (id) => document.getElementById(id);
+
+let tasks = [];
+let current = null;        // 当前选中的任务 id
+let stream = null;         // EventSource
+let lastSeq = 0;
+let nodeState = {};        // nodeName -> 'done' | 'current' | 'failed'
+let visits = {};           // nodeName -> 次数
+let tab = 'events';
+let artifacts = [];
+let pipeline = null;
+
+// ---------- 工具 ----------
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const shortId = (id) => id ? id.slice(0, 8) : '—';
+const hhmmss = (ts) => {
+  if (!ts) return '';
+  const d = new Date(ts < 1e12 ? ts * 1000 : ts);
+  return d.toTimeString().slice(0, 8);
+};
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2600);
+}
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const text = await r.text();
+  let body; try { body = JSON.parse(text); } catch { body = text; }
+  if (!r.ok) throw new Error((body && body.message) || body || r.status);
+  return body;
+}
+
+// ---------- 健康 ----------
+async function loadHealth() {
+  try {
+    const h = await api('/api/health');
+    const ok = h.kernelReachable;
+    $('healthDot').className = 'dot ' + (ok ? 'ok' : 'bad');
+    $('healthText').textContent = ok
+      ? `内核在线 · ${h.kernel.model || '模型'} · 覆盖率门禁 ${h.kernel.coverage_target}%`
+      : '内核离线（网关仍可受理任务，但派发会失败）';
+    $('health').title = ok ? '点击刷新' : (h.kernelError || '');
+  } catch (e) {
+    $('healthDot').className = 'dot bad';
+    $('healthText').textContent = '网关不可达：' + e.message;
+  }
+}
+$('health').onclick = loadHealth;
+
+// ---------- 流水线结构 ----------
+async function loadPipeline() {
+  try {
+    pipeline = (await api('/api/pipeline')).graph;
+    renderPipeline();
+  } catch (e) { /* 内核离线时静默，页面主体仍可用 */ }
+}
+
+function orderedNodes() {
+  const ns = pipeline ? pipeline.nodes.map(n => n.name) : [];
+  // 按固定边把主干排直，条件边的目标是回环，不参与主干序列。
+  const fixed = {};
+  (pipeline?.edges || []).filter(e => e.kind === 'fixed').forEach(e => fixed[e.from] = e.to);
+  const order = [];
+  let cur = pipeline?.entry;
+  const seen = new Set();
+  while (cur && !seen.has(cur)) { order.push(cur); seen.add(cur); cur = fixed[cur]; }
+  ns.forEach(n => { if (!order.includes(n)) order.push(n); });
+  return order;
+}
+
+function renderPipeline() {
+  if (!pipeline) return;
+  const order = orderedNodes();
+  const byName = Object.fromEntries(pipeline.nodes.map(n => [n.name, n]));
+  $('pipelineNodes').innerHTML = order.map((n, i) => {
+    const info = byName[n] || {};
+    const cls = nodeState[n] === 'current' ? 'current' : nodeState[n] === 'done' ? 'done'
+              : nodeState[n] === 'failed' ? 'failed' : '';
+    const rev = (visits[n] || 0) > 1 ? ' revisit' : '';
+    const mx = info.max_visits ? ` ≤${info.max_visits}` : '';
+    return (i ? '<span class="arrow">→</span>' : '')
+      + `<div class="node ${cls}${rev}" title="${esc(info.description || '')}">
+           <span class="n-name">${esc(n)}</span>
+           <span class="n-visits">${visits[n] ? visits[n] + '×' : ''}${mx}</span>
+         </div>`;
+  }).join('');
+
+  const conds = (pipeline.edges || []).filter(e => e.kind === 'conditional');
+  const labels = {
+    'clarify→clarify': '信息不足 → 再问一轮（最多 ' + maxClarify() + ' 次，策略层到顶就放行）',
+    'gate→code': '覆盖率不达标 → 打回重写（最多 ' + maxCodegen() + ' 次）',
+  };
+  $('pipelineLoops').innerHTML = conds.map(e => {
+    const key = e.from + '→' + e.to;
+    return `<div>↺ <b>${esc(e.from)}</b> → <b>${esc(e.to)}</b>　${esc(labels[key] || '条件回环')}</div>`;
+  }).join('') + (pipeline.describe
+    ? `<div style="margin-top:6px;color:var(--text-faint)">${esc(pipeline.describe)}</div>` : '');
+}
+function maxClarify() {
+  const n = pipeline?.nodes.find(x => x.name === 'clarify');
+  return n?.max_visits ? n.max_visits - 1 : 3;
+}
+function maxCodegen() {
+  const n = pipeline?.nodes.find(x => x.name === 'code');
+  return n?.max_visits ? n.max_visits - 1 : 2;
+}
+
+// ---------- 任务列表 ----------
+async function loadTasks() {
+  try {
+    const r = await api('/api/tasks?limit=50');
+    tasks = r.items || [];
+    renderTasks();
+  } catch (e) { /* 下次轮询再试 */ }
+}
+
+function renderTasks() {
+  if (!tasks.length) {
+    $('taskList').innerHTML = '<div class="hint" style="padding:6px 16px">还没有任务。提交一个试试。</div>';
+    return;
+  }
+  $('taskList').innerHTML = tasks.map(t => `
+    <div class="task ${t.taskId === current ? 'active' : ''}" onclick="selectTask('${t.taskId}')">
+      <div class="meta">
+        <div class="id">${shortId(t.taskId)}${t.attempts > 1 ? ` · 重派 ${t.attempts - 1} 次` : ''}</div>
+        <div class="req" title="${esc(t.requirement)}">${esc(t.requirement)}</div>
+      </div>
+      <div class="spacer" style="flex:1"></div>
+      ${t.result && t.result.gate_degraded ? '<span class="badge timeout" title="门禁降级接受">降级</span>' : ''}
+      <span class="badge ${t.state}">${stateLabel(t.state)}</span>
+    </div>`).join('');
+}
+
+const STATE_LABEL = {
+  pending: '已受理', dispatched: '已派发', running: '运行中',
+  waiting_approval: '等审批', timeout: '失联重派', succeeded: '成功',
+  failed: '失败', cancelled: '已取消',
+};
+const stateLabel = (s) => STATE_LABEL[s] || s;
+
+// ---------- 选中任务 ----------
+async function selectTask(id) {
+  if (stream) { stream.close(); stream = null; }
+  current = id; lastSeq = 0; nodeState = {}; visits = {}; artifacts = [];
+  tab = 'events';
+  renderTasks();
+  renderDetail(null);          // 先画骨架
+  await refreshDetail();
+  openStream(id);
+}
+
+async function refreshDetail() {
+  if (!current) return;
+  let t;
+  try { t = await api('/api/tasks/' + current); } catch (e) { toast('读取任务失败：' + e.message); return; }
+  renderDetail(t);
+}
+
+function renderDetail(t) {
+  const el = $('detail');
+  if (!t) {
+    el.innerHTML = `<div class="empty"><h3>选择或提交一个任务</h3>
+      <p>一句话需求会依次经过 需求澄清 → PRD → 技术方案 → <b>人工审批</b> → 编码+单测 → 覆盖率门禁。
+      覆盖率不达标会打回编码重写，最多 2 次。</p></div>`;
+    return;
+  }
+
+  const k = t.kernel || {};
+  // 判决摘要优先用**网关账本**里那份（t.result），内核详情只作为补充。
+  // 顺序是有意的：内核可能挂掉或重启，而账本里的判决是网关自己收下的。
+  // 反过来依赖内核，就会出现"内核一重启，历史任务的覆盖率全没了"。
+  const res = Object.assign({}, t.result || {}, k.result || {});
+  const cov = res.coverage ?? k.coverage;
+  const target = res.coverage_target ?? k.coverage_target;
+  const rounds = `澄清 ${res.clarify_rounds || 0} 轮 · 编码 ${res.codegen_rounds || 0} 轮`;
+  const degradedNote = res.gate_degraded ? (res.gate_reason || '质量门禁未达标，已降级接受') : '';
+  const nodeDegraded = res.degraded ? '部分节点因模型不可用走了降级实现' : '';
+
+  el.innerHTML = `
+  <div class="detail-head">
+    <span class="badge ${t.state}">${stateLabel(t.state)}</span>
+    <h1>${esc((t.requirement || '').slice(0, 60))}</h1>
+    <div class="kv">
+      <span>网关任务 <b>${shortId(t.taskId)}</b></span>
+      <span>内核任务 <b>${shortId(t.kernelTaskId)}</b></span>
+      <span>执行次数 <b>${t.attempts}</b></span>
+      ${t.leaseExpiresAt ? `<span>租约 <b>${new Date(t.leaseExpiresAt).toTimeString().slice(0,8)}</b></span>` : ''}
+      ${rounds ? `<span>${esc(rounds)}</span>` : ''}
+      ${cov != null ? `<span>覆盖率 <b>${cov}%</b> / 门禁 ${target}%</span>` : ''}
+    </div>
+    ${degradedNote ? `<div class="banner-degraded">⚠ ${esc(degradedNote)}</div>` : ''}
+    ${nodeDegraded ? `<div class="banner-degraded">⚠ ${esc(nodeDegraded)}</div>` : ''}
+    <div class="tabs">
+      <div class="tab ${tab==='events'?'active':''}" onclick="setTab('events')">事件流</div>
+      <div class="tab ${tab==='files'?'active':''}" onclick="setTab('files')">产物</div>
+      <div class="tab ${tab==='raw'?'active':''}" onclick="setTab('raw')">原始状态</div>
+    </div>
+  </div>
+  <div class="block" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button class="ok" id="btnApprove" ${t.state==='waiting_approval'?'':'disabled'}
+      onclick="doApprove(true)">批准并继续</button>
+    <button class="err" id="btnReject" ${t.state==='waiting_approval'?'':'disabled'}
+      onclick="doApprove(false)">拒绝</button>
+    <button class="sm" id="btnResume"
+      ${['failed','cancelled','succeeded'].includes(t.state)?'':'disabled'}
+      onclick="doResume()">从断点恢复</button>
+    <button class="sm" id="btnCancel"
+      ${['succeeded','failed','cancelled'].includes(t.state)?'disabled':''}
+      onclick="doCancel()">取消任务</button>
+    ${t.state==='waiting_approval'
+      ? '<span class="hint" style="margin:0">流水线正阻塞在审批点等待放行 —— 这正是 HITL 的体现</span>' : ''}
+  </div>
+  <div class="block grow" id="pane" style="padding:0"></div>`;
+
+  renderPane();
+  if (tab === 'files') loadArtifacts();
+}
+
+function setTab(x) { tab = x; renderDetail(currentTask()); if (x === 'files') loadArtifacts(); }
+function currentTask() { return tasks.find(t => t.taskId === current); }
+
+function renderPane() {
+  const pane = $('pane');
+  if (!pane) return;
+  if (tab === 'events') {
+    pane.innerHTML = '<div class="events" id="events"></div>';
+    drawEvents();
+  } else if (tab === 'files') {
+    pane.innerHTML = '<div class="files" id="files"><div class="hint" style="padding:12px 18px">加载中…</div></div>';
+  } else {
+    const t = currentTask();
+    pane.innerHTML = `<div class="events"><pre style="padding:14px 18px;margin:0;white-space:pre-wrap;color:var(--text-dim)">${
+      esc(JSON.stringify(t || {}, null, 2))}</pre></div>`;
+  }
+}
+
+// ---------- 事件流 ----------
+let eventLog = [];
+
+function openStream(id) {
+  stream = new EventSource(`/api/tasks/${id}/events?since=${lastSeq}`);
+  stream.onmessage = () => {};
+  // 有限枚举的事件类型各自注册一个监听：SSE 的 event: 行就是干这个的。
+  const types = ['task.created','task.status','node.started','node.finished','node.failed',
+    'node.skipped','log','artifact','approval.required','approval.resolved','llm.usage',
+    'sandbox.run','task.done','task.failed',
+    'gateway.dispatched','gateway.dispatch_failed','gateway.timeout','gateway.resumed',
+    'gateway.reconciled','gateway.approve_failed'];
+  types.forEach(ty => stream.addEventListener(ty, (e) => {
+    let payload = {};
+    try { payload = JSON.parse(e.data); } catch {}
+    onEvent(payload, ty);
+  }));
+
+  stream.onerror = () => {
+    // 连接断了不等于任务断了 —— 后端那边可能还在跑。
+    // 重连时带上 lastSeq，只补缺失的那几条。
+    if (stream) { stream.close(); stream = null; }
+    if (current === id) setTimeout(() => { if (current === id) openStream(id); }, 1500);
+  };
+}
+
+function onEvent(payload, type) {
+  // 心跳不是业务事件，只是"连接还活着"的信号。不进事件流，避免刷屏。
+  if (type === 'gateway.heartbeat') return;
+
+  const seq = payload.seq || 0;
+  if (seq && seq <= lastSeq) return;
+  lastSeq = Math.max(lastSeq, seq);
+
+  eventLog.push({ seq, type, ts: payload.ts, data: payload.data });
+  if (eventLog.length > 500) eventLog.shift();
+
+  applyToNodes(type, payload.data || {});
+  drawEvents();
+
+  // 终态事件到达：关掉流、刷新列表与详情。
+  if (type === 'task.done' || type === 'task.failed') {
+    if (stream) { stream.close(); stream = null; }
+    setTimeout(() => { loadTasks(); refreshDetail(); }, 300);
+  }
+  if (type === 'approval.required') { loadTasks(); refreshDetail(); }
+}
+
+function applyToNodes(type, data) {
+  const n = data.node;
+  if (type === 'approval.required' && !n) { /* 审批点在 approve 节点上 */ nodeState['approve'] = 'current'; }
+  if (type === 'node.started' && n) {
+    Object.keys(nodeState).forEach(k => { if (nodeState[k] === 'current') nodeState[k] = 'done'; });
+    nodeState[n] = 'current';
+    visits[n] = (visits[n] || 0) + 1;
+    renderPipeline();
+  }
+  if (type === 'node.finished' && n) { nodeState[n] = 'done'; renderPipeline(); }
+  if (type === 'node.failed' && n) { nodeState[n] = 'failed'; renderPipeline(); }
+}
+
+const TYPE_CLASS = {
+  'node.started': 't-node', 'node.finished': 't-node', 'node.skipped': 't-sys',
+  'approval.required': 't-warn', 'approval.resolved': 't-ok',
+  'sandbox.run': 't-node', 'llm.usage': 't-sys',
+  'task.done': 't-ok', 'task.failed': 't-err', 'task.status': 't-sys',
+  'gateway.timeout': 't-warn', 'gateway.dispatch_failed': 't-err',
+  'gateway.dispatched': 't-sys', 'gateway.resumed': 't-ok',
+  'gateway.reconciled': 't-warn', 'gateway.approve_failed': 't-err',
+  'log': 't-sys', 'artifact': 't-sys', 'task.created': 't-sys',
+};
+
+function drawEvents() {
+  const box = $('events');
+  if (!box) return;
+  if (!eventLog.length) {
+    box.innerHTML = '<div class="hint" style="padding:12px 16px">等待事件…</div>';
+    return;
+  }
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+  box.innerHTML = eventLog.map(e => {
+    const cls = TYPE_CLASS[e.type] || 't-sys';
+    return `<div class="ev">
+      <span class="seq">${e.seq}</span>
+      <span class="t">${hhmmss(e.ts)}</span>
+      <span class="ty ${cls}">${esc(e.type)}</span>
+      <span class="body">${esc(summarize(e))}</span>
+    </div>`;
+  }).join('');
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+
+function summarize(e) {
+  const d = e.data || {};
+  const parts = [];
+  if (d.node) parts.push('node=' + d.node);
+  if (d.status) parts.push('status=' + d.status);
+  if (d.error) parts.push('error=' + d.error);
+  if (d.path) parts.push(d.path);
+  if (d.summary) parts.push(d.summary);
+  if (d.cmd) parts.push('$ ' + d.cmd);
+  if (d.coverage != null) parts.push('coverage=' + d.coverage + '%');
+  if (d.message) parts.push(d.message);
+  if (d.attempts != null) parts.push('attempts=' + d.attempts);
+  if (d.task_id) parts.push('task=' + String(d.task_id).slice(0, 8));
+  if (!parts.length) {
+    const s = JSON.stringify(d);
+    return s === '{}' ? '' : s.slice(0, 200);
+  }
+  return parts.join('  ');
+}
+
+// ---------- 产物 ----------
+async function loadArtifacts() {
+  try {
+    const r = await api('/api/tasks/' + current + '/artifacts');
+    artifacts = r.items || [];
+  } catch (e) { artifacts = []; }
+  const box = $('files');
+  if (!box) return;
+  if (!artifacts.length) {
+    box.innerHTML = '<div class="hint" style="padding:12px 18px">还没有产物。编码节点（code）跑完后这里会出现文件。</div>';
+    return;
+  }
+  box.innerHTML = artifacts.map(f => `
+    <div class="file" onclick="openFile('${esc(f.path)}')">
+      <span class="f-path">${esc(f.path)}</span>
+      <span class="f-size">${f.size} B</span>
+    </div>`).join('');
+}
+
+async function openFile(path) {
+  $('modalTitle').textContent = path;
+  $('modalBody').textContent = '加载中…';
+  $('modal').classList.add('open');
+  try {
+    const r = await fetch(`/api/tasks/${current}/artifacts/raw?path=${encodeURIComponent(path)}`);
+    $('modalBody').textContent = await r.text();
+  } catch (e) { $('modalBody').textContent = '读取失败：' + e.message; }
+}
+function closeModal() { $('modal').classList.remove('open'); }
+$('modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
+
+// ---------- 动作 ----------
+$('submitBtn').onclick = async () => {
+  const req = $('requirement').value.trim();
+  if (!req) { toast('请先写一句需求'); return; }
+  const key = $('idemKey').value.trim();
+  $('submitBtn').disabled = true;
+  try {
+    const t = await api('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(key ? {'Idempotency-Key': key} : {}) },
+      body: JSON.stringify({ requirement: req, options: {} }),
+    });
+    toast(t.deduplicated ? '幂等键命中，复用已有任务 ' + shortId(t.taskId) : '任务已受理 ' + shortId(t.taskId));
+    await loadTasks();
+    selectTask(t.taskId);
+  } catch (e) { toast('提交失败：' + e.message); }
+  finally { $('submitBtn').disabled = false; }
+};
+
+async function doApprove(approved) {
+  try {
+    await api(`/api/tasks/${current}/approve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved, comment: approved ? '演示页批准' : '演示页拒绝' }),
+    });
+    toast(approved ? '已放行（状态将在内核确认后更新）' : '已拒绝');
+    setTimeout(refreshDetail, 400);
+  } catch (e) { toast('审批失败：' + e.message); }
+}
+
+async function doCancel() {
+  try {
+    await api(`/api/tasks/${current}/cancel`, { method: 'POST' });
+    toast('已取消');
+    await loadTasks(); refreshDetail();
+  } catch (e) { toast('取消失败：' + e.message); }
+}
+
+async function doResume() {
+  try {
+    // 断点恢复会**新建**一个任务：内核侧终态不可逆，历史只追加。
+    const t = await api(`/api/tasks/${current}/resume`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoApprove: true }),
+    });
+    toast('已从断点恢复为 ' + shortId(t.taskId));
+    await loadTasks();
+    selectTask(t.taskId);
+  } catch (e) { toast('恢复失败：' + e.message); }
+}
+
+// ---------- 启动 ----------
+(async function init() {
+  await Promise.all([loadHealth(), loadPipeline(), loadTasks()]);
+  renderDetail(null);
+
+  // 深链支持：/?task=<id> 直接打开某个任务。
+  // 为什么值得做：排障时要把"你现在看到的是哪个任务"发给别人，
+  // 一个可复制的链接远比"点左边第三个"可靠；也顺便让演示页可以被截图存档。
+  const wanted = new URLSearchParams(location.search).get('task');
+  if (wanted && tasks.some(t => t.taskId === wanted)) {
+    selectTask(wanted);
+  }
+
+  setInterval(loadTasks, 2500);
+  setInterval(loadHealth, 15000);
+})();
+</script>
+</body>
+</html>

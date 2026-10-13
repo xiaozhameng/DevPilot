@@ -1,0 +1,77 @@
+server:
+  port: 8091
+  # 优雅停机：等在途请求处理完再退。
+  # 对 SSE 长连接来说尤其重要 —— 直接杀进程会让所有客户端看到连接异常断开，
+  # 虽然它们会重连，但每次都断一次是没必要的体验损耗。
+  shutdown: graceful
+
+spring:
+  application:
+    name: devpilot-gateway
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  webflux:
+    # 演示页放在 resources/static 下，由网关自己托管。
+    # 为什么不让页面独立部署：演示时要"一条命令起两个进程就能看"，
+    # 多一个前端构建/部署环节，就多一个"演示当天跑不起来"的理由。
+    static-path-pattern: /**
+
+# ============================================================
+# 网关自身的配置。
+# 每一项都对应一个具体的权衡，改之前先想清楚它在防什么。
+# ============================================================
+gateway:
+  kernel:
+    # 内核地址。网关是唯一知道这个地址的进程 —— 浏览器不该知道。
+    base-url: http://127.0.0.1:8078
+    # 内网凭证。必须与内核 .env 里的 DEVPILOT_INTERNAL_TOKEN 一致。
+    # 这里给的是本地开发默认值，生产必须换成环境变量注入。
+    token: ${DEVPILOT_INTERNAL_TOKEN:dev-local-token-change-me}
+    timeout-seconds: 30
+    # 提交单独放宽：内核首次受理要建库、加载配置，冷启动可能超过 30 秒。
+    # 用同一个 30 秒会把"内核正在启动"误判成"提交失败"，
+    # 而提交失败会立刻把任务标成 FAILED —— 一次冷启动就烧掉一个任务。
+    submit-timeout-seconds: 60
+
+  lease:
+    # 租约时长。与 max-attempts 是一对权衡：
+    #   太短 → 正常的慢任务被误判失联，重复执行（烧钱）
+    #   太长 → 真的失联后要等很久才重派（任务卡住）
+    # 一次交付约 3~5 分钟，600 秒留了约一倍余量。
+    duration-seconds: 600
+    # 重派上限。为什么要上限：无限重派会持续烧钱且永不收敛，
+    # 而"失败"至少是一个能被用户看到、能被处理的终态。
+    max-attempts: 2
+    # 扫描间隔。必须显著小于租约时长，否则过期任务会被拖到下一个周期才处理。
+    # 30s vs 600s = 1/20，留足余量。
+    reap-interval-seconds: 30
+
+  # 人工审批的等待上限。
+  # 关键：这个值必须与内核 .env 里的 DEVPILOT_APPROVAL_TIMEOUT 保持一致（默认 1800）。
+  # 两侧不一致会打架：若网关这边更短，它会在内核还没放弃时就把任务重派出去，
+  # 于是同一个交付被跑两遍 —— 而这一切只因为一个配置项没对齐。
+  approval:
+    wait-timeout-seconds: 1800
+    # 余量：留给内核把"审批超时→失败"这个终态事件发出来的时间。
+    margin-seconds: 120
+
+  audit:
+    enabled: true
+    # JSONL：一行一个 JSON。既能 grep 定位，也能 jq 统计。
+    path: var/audit.jsonl
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 只开 health：其它 actuator 端点会暴露内部结构，
+        # 而这个网关有它自己的 /api/health（会聚合内核状态，比这个有用）。
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    com.devpilot.gateway: DEBUG
