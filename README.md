@@ -76,11 +76,20 @@ cp .env.example .env        # 然后把 DEVPILOT_API_KEY 填上
 ### 起服务
 
 ```bash
-# 1) 起双服务（内核 + 网关，Ctrl-C 一起停）
-./scripts/dev.sh
-
-# 2) 打开演示看板
+./start.sh                # 内核 + 网关一起起，前台阻塞
 open http://127.0.0.1:8091/
+```
+
+`start.sh` 会自动处理三件容易忘的事：`.env` 没配会提示、venv 没建会建、
+jar 过期（改过 Java 或演示页）会重新打包。**Ctrl-C 或直接关掉终端窗口**
+都会把两个服务一起收走，不留孤儿进程。
+
+手工起、分开起仍然可以：
+
+```bash
+./scripts/dev.sh          # 只起服务，不做上面那些检查
+./scripts/kernel.sh       # 只起内核（前台）
+./scripts/gateway.sh      # 只起网关（前台）
 ```
 
 命令行方式：

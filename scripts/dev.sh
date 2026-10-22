@@ -22,7 +22,9 @@ cleanup() {
   wait 2>/dev/null || true
   echo "已停止。"
 }
-trap cleanup EXIT INT TERM
+# HUP 也要接：直接关掉终端窗口时子进程会收到 SIGHUP，
+# 不接的话 java / python 会变成孤儿进程继续占着端口。
+trap cleanup EXIT INT TERM HUP
 
 echo "──── 1/2 启动内核 ────"
 "$ROOT/scripts/kernel.sh" &
