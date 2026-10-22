@@ -12,7 +12,6 @@ DevPilot 打「多 Agent + 工程约束」—— 编排、状态机、幂等、�
 | 核心问题 | 答案**对不对**、引用可不可信 | 流程**会不会失控**、任务**会不会丢** |
 | Agent 形态 | 单 Agent 主循环 | 6 节点图 + 2 条条件回环 |
 | 关键机制 | 双路召回 + RRF、引用深链 | 状态机、检查点、幂等、租约、沙箱 |
-| 对应实践 |  Q1–Q7、Q12–Q14 |  Q8–Q11、Q15； Q2/Q4/Q9/Q14 |
 
 ![演示看板：左侧任务列表与提交表单，右侧流水线结构与节点图](docs/screenshots/dashboard.png)
 
@@ -145,9 +144,9 @@ cd gateway && mvn -B test                 # 网关 69 个测试
 
 ---
 
-## 4. 核心设计决策（对着实践题讲）
+## 4. 核心设计决策
 
-### 4.1 显式状态机 > 布尔字段（ Q2）
+### 4.1 显式状态机 > 布尔字段
 
 三个布尔量有 8 种组合，其中 5 种自相矛盾（`isRunning && isDone` 是什么？），
 而代码里没有任何东西阻止并发把它写出来。
@@ -173,7 +172,7 @@ PENDING → DISPATCHED → RUNNING → {SUCCEEDED | FAILED | CANCELLED}
 任务变成僵尸。所以执行面上报用更宽的规则，边界只有两条：
 终态不可改写、没派发过不接受执行结果。
 
-### 4.2 幂等：`putIfAbsent`，不是 check-then-act（ Q9）
+### 4.2 幂等：`putIfAbsent`，不是 check-then-act
 
 ```java
 TaskRecord existing = byIdemKey.putIfAbsent(idemKey, fresh);
@@ -191,9 +190,9 @@ if (existing != null) { return new SubmitOutcome(existing, true); }
 **诚实说明：这套实现在多副本下失效。**
 内存 Map 只在单实例成立，网关部署两个副本时 A 的 putIfAbsent 对 B 不可见。
 生产做法是换成带唯一索引的数据库，让唯一性由存储层保证。
-评审要讲清的是**机制**（原子占位、状态机、租约），换 DB 只是换了执行者。
+要讲清的是**机制**（原子占位、状态机、租约），换 DB 只是换了执行者。
 
-### 4.3 租约 + 超时重派（ Q4）
+### 4.3 租约 + 超时重派
 
 派发时写一个租约到期时间；Reaper 定时扫描过期任务，决定重派还是判死。
 
@@ -225,7 +224,7 @@ if (existing != null) { return new SubmitOutcome(existing, true); }
 - 重派分两段：优先走 `/resume`（断点恢复，内核重启后唯一能真正续跑的方式），
   失败再退回重新提交（同一幂等键）。
 
-### 4.4 沙箱：四件事缺一不可（ Q11）
+### 4.4 沙箱：四件事缺一不可
 
 | 防护 | 做法 | 漏掉的后果 |
 |---|---|---|
@@ -238,7 +237,7 @@ if (existing != null) { return new SubmitOutcome(existing, true); }
 （今天防 `API_KEY`，明天模型输出里出现的是 `DEEPSEEK_TOKEN`）。
 白名单默认拒绝，新变量不出现除非你显式放行。
 
-### 4.5 断点恢复：恢复的是**状态**，不只是进度（ Q9）
+### 4.5 断点恢复：恢复的是**状态**，不只是进度
 
 每节点执行完落一个检查点（node + visits + steps + state）。
 `visits` 必须存 —— 否则恢复后刹车计数器从 0 开始，保护层失效。
@@ -252,7 +251,7 @@ if (existing != null) { return new SubmitOutcome(existing, true); }
 > 根因是共享状态没从检查点恢复。这类「不报错但结果错」的问题最贵，
 > 所以把约束写进代码（`restore_from_checkpoint`），而不是写进注释。
 
-### 4.6 事件协议与 SSE 中继（ Q15）
+### 4.6 事件协议与 SSE 中继
 
 - 事件类型是**有限枚举**，不是自由文本 —— 新增一种必须显式加常量，拼写错误挡在编译期
 - 每条带单调 `seq` + `task_id` —— 断线重连 `?since=N`，不丢不重
@@ -271,7 +270,7 @@ if (existing != null) { return new SubmitOutcome(existing, true); }
 > ③ 对 `text/event-stream` 端点返回 `Flux<String>` 时，Spring 会把你手工拼的
 >    SSE 帧再包一层 `data:`，前端收到转义乱码。应该用 `ServerSentEvent`。
 
-### 4.7 harness 第 4 层：验证（ Q14）
+### 4.7 harness 第 4 层：验证
 
 每个节点出口做 Schema 校验，不合格把**具体错误**回灌重试。
 只说「请重新输出」没用，模型会原样再错一遍；
@@ -296,7 +295,7 @@ if (existing != null) { return new SubmitOutcome(existing, true); }
    两种情况的处置完全相反：格式不对 → 回灌重试有意义；截断 → 重试只会重复截断
 3. `call_json` 遇到截断**立刻放弃重试**，把准确原因冒到最上面
 
-### 4.9 成本记账到节点（ Q9）
+### 4.9 成本记账到节点
 
 ```
 total:  calls=14  out=32802
@@ -307,7 +306,7 @@ by_node: clarify=(1,1172)  prd=(1,1200)  design=(1,3554)
 「这次任务花了多少钱」不是有用的问题，「钱花在哪个节点」才是。
 实测编码节点是澄清节点的 10 倍以上，只报总数会让优化完全失去方向。
 
-### 4.10 关键路径（ Q14 手撕题）
+### 4.10 关键路径
 
 `plan.py` 独立实现：拓扑排序（确定性）、找环、**带权最长路**、有限并行度调度。
 总工期由最长链决定，优化非关键路径节点没有收益 ——

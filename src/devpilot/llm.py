@@ -10,7 +10,7 @@
 
 DevPilot 相比 CitePilot 多了一件事：**按节点记账**。
 因为多 Agent 的成本要能拆到"哪个 Agent 花了多少"，
-否则要回答"token 成本怎么控"时只能说个总数，没法定位到成本黑洞。
+否则被问到"token 成本怎么控"时只能说个总数，没法定位到成本黑洞。
 """
 
 from __future__ import annotations

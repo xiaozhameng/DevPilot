@@ -253,7 +253,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    """DAG 静态分析演示：对应一个 DAG 静态分析问题。"""
+    """DAG 静态分析演示：拓扑排序 · 关键路径 · 故障重调度。"""
     deps = {
         "fetch_spec": [], "gen_schema": ["fetch_spec"],
         "gen_code": ["gen_schema"], "gen_tests": ["gen_schema"],

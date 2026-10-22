@@ -254,7 +254,7 @@ class Graph:
     def downstream_of(self, name: str, include_self: bool = False) -> set[str]:
         """故障影响范围：这个节点挂了，哪些下游节点需要重跑。
 
-        对应"故障节点重调度：只重跑下游子树"。
+        对应"故障节点重调度：只重跑下游子树"这个常见问题。
         有了它才能做到"某个节点失败时不做全量重跑"——
         而全量重跑在多 Agent 里很贵（每个节点都在烧 token）。
 
@@ -296,7 +296,7 @@ def run_graph(graph: Graph, ctx: Any, *, start: str | None = None) -> dict[str, 
 
     关于 `start`：传它就是**断点恢复**的入口。checkpoint 里存了"上次执行到哪个节点"，
     重启后从这个节点继续 —— 前面已经跑完的节点不会再花一次钱。
-    这是"长任务挂掉后能从断点续跑"的实现方式（断点恢复）。
+    这是"长任务挂掉后能从断点续跑"的实现方式。
 
     每一步之后都会 ctx.checkpoint(...)，所以任意时刻崩溃都能续。
     """
