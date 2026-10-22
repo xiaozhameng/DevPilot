@@ -4,7 +4,7 @@
 >
 > 覆盖率不达标会**打回编码重写**，最多 2 次；打回次数用尽则任务失败。
 
-DevPilot 与 [CitePilot](../CitePilot) 互补：CitePilot 打「单 Agent + 检索质量」，
+DevPilot 与 [CitePilot](https://github.com/xiaozhameng/CitePilot) 互补：CitePilot 打「单 Agent + 检索质量」，
 DevPilot 打「多 Agent + 工程约束」—— 编排、状态机、幂等、沙箱、断点恢复、超时重派。
 
 | | CitePilot | DevPilot |
@@ -13,6 +13,8 @@ DevPilot 打「多 Agent + 工程约束」—— 编排、状态机、幂等、�
 | Agent 形态 | 单 Agent 主循环 | 6 节点图 + 2 条条件回环 |
 | 关键机制 | 双路召回 + RRF、引用深链 | 状态机、检查点、幂等、租约、沙箱 |
 | 对应实践 |  Q1–Q7、Q12–Q14 |  Q8–Q11、Q15； Q2/Q4/Q9/Q14 |
+
+![演示看板：左侧任务列表与提交表单，右侧流水线结构与节点图](docs/screenshots/dashboard.png)
 
 ---
 
@@ -55,14 +57,30 @@ DevPilot 打「多 Agent + 工程约束」—— 编排、状态机、幂等、�
 
 ## 2. 快速开始
 
-```bash
-# 1) 配置：把 DeepSeek key 写进 .env（DEVPILOT_API_KEY）
-cp .env.example .env
+### 前置条件
 
-# 2) 起双服务（内核 + 网关，Ctrl-C 一起停）
+- Python ≥ 3.11（开发用的是 3.13）；
+- 跑网关需要 JDK 21，重新打包网关还需要 Maven 3.9+。脚本会自动探测与仓库
+  平级的 `../.tools/env.sh`（免安装工具链约定），找不到就退回系统 PATH ——
+  把 JDK / Maven 装进 PATH 也能用；
+- 一个 DeepSeek API key。
+
+### 首次安装
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .
+
+cp .env.example .env        # 然后把 DEVPILOT_API_KEY 填上
+```
+
+### 起服务
+
+```bash
+# 1) 起双服务（内核 + 网关，Ctrl-C 一起停）
 ./scripts/dev.sh
 
-# 3) 打开演示看板
+# 2) 打开演示看板
 open http://127.0.0.1:8091/
 ```
 

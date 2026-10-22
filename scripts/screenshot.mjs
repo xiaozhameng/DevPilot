@@ -18,9 +18,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const [url, out, w = "1440", h = "900"] = process.argv.slice(2);
+const [url, out, w = "1440", h = "900", waitMs = "6000"] = process.argv.slice(2);
 if (!url || !out) {
-  console.error("用法: node scripts/screenshot.mjs <url> <out.png> [w] [h]");
+  console.error("用法: node scripts/screenshot.mjs <url> <out.png> [w] [h] [waitMs]");
   process.exit(2);
 }
 
@@ -91,8 +91,9 @@ try {
   });
   await send("Page.navigate", { url });
 
-  // 真等 6 秒：让 /api/tasks 回来、列表渲染完、字体加载完。
-  await sleep(6000);
+  // 真等一会儿：让异步接口回来、列表渲染完、字体加载完。
+  // 默认 6 秒够静态页用；问答类页面要传更长的 waitMs（一次完整回答 7 秒以上）。
+  await sleep(Number(waitMs));
 
   const { data } = await send("Page.captureScreenshot", {
     format: "png",
