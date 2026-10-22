@@ -15,6 +15,19 @@ DevPilot 打「多 Agent + 工程约束」—— 编排、状态机、幂等、�
 
 ![演示看板：左侧任务列表与提交表单，右侧流水线结构与节点图](docs/screenshots/dashboard.png)
 
+**想直接跑起来？**
+
+```bash
+git clone https://github.com/xiaozhameng/DevPilot.git && cd DevPilot
+python3 -m venv .venv && .venv/bin/pip install -e .
+cp .env.example .env && $EDITOR .env     # 填 DEVPILOT_API_KEY —— 没有它跑不了流水线
+./start.sh                               # 内核 :8078 + 网关 :8091，Ctrl-C 一起停
+```
+
+没有 key 也能先做两件事：`.venv/bin/python -m pytest -q`（146 个测试）、
+`.venv/bin/python -m devpilot.cli pipeline`（打印流水线结构）。
+完整步骤、每步预期输出、排查表见 [快速开始（从零到跑起来）](#2-快速开始从零到跑起来)。
+
 ---
 
 ## 1. 架构
@@ -54,64 +67,132 @@ DevPilot 打「多 Agent + 工程约束」—— 编排、状态机、幂等、�
 
 ---
 
-## 2. 快速开始
+## 2. 快速开始（从零到跑起来）
 
-### 前置条件
+按「别人刚 clone 下来」的视角写：每步给命令，也给**预期看到什么**。
+三个环节之外不需要你做任何事 —— 建环境、打包、起服务都被 `start.sh` 收掉了。
 
-- Python ≥ 3.11（开发用的是 3.13）；
-- 跑网关需要 JDK 21，重新打包网关还需要 Maven 3.9+。脚本会自动探测与仓库
-  平级的 `../.tools/env.sh`（免安装工具链约定），找不到就退回系统 PATH ——
-  把 JDK / Maven 装进 PATH 也能用；
-- 一个 DeepSeek API key。
+### 你需要什么
 
-### 首次安装
+| | 要求 | 没有会怎样 |
+|---|---|---|
+| **必需** | Python ≥ 3.11（开发用 3.13） | 装不了。先 `python3 --version` 看一眼 |
+| **必需** | git | clone 不了 |
+| **必需** | 一个 DeepSeek API key | **跑不了流水线**。与 CitePilot 不同，这里没有离线降级 —— 澄清 / PRD / 方案 / 编码 / 门禁每一步都要调模型。不填 key 仍可跑单测和看流水线结构 |
+| 可选 | JDK 21 + Maven 3.9+ | 只影响演示页（Java 网关）。**只用命令行跑交付完全不需要 Java** |
+
+### 第 1 步：拿代码
+
+```bash
+git clone https://github.com/xiaozhameng/DevPilot.git
+cd DevPilot
+```
+
+### 第 2 步：建环境
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
-
-cp .env.example .env        # 然后把 DEVPILOT_API_KEY 填上
 ```
 
-### 起服务
+预期：约 1 分钟，不报错。
+
+### 第 3 步：填 key（唯一必须你亲手做的一步）
 
 ```bash
-./start.sh                # 内核 + 网关一起起，前台阻塞
+cp .env.example .env
+$EDITOR .env          # 把 DEVPILOT_API_KEY=sk-xxx 换成你自己的
+```
+
+key 从 <https://platform.deepseek.com> 申请。`.env` 已被 gitignore，不会进仓库。
+
+想先确认不填 key 也能用：
+
+```bash
+.venv/bin/python -m pytest -q               # 146 个测试，约 6 秒，不需要 key
+.venv/bin/python -m devpilot.cli pipeline   # 打印流水线结构，不需要 key
+```
+
+### 第 4 步：起完整服务（一条命令）
+
+```bash
+./start.sh
+```
+
+`start.sh` 会自动做三件事：`.env` 不存在就从模板生成并提示填 key、`.venv` 不存在就建并装依赖、
+网关 jar 不存在或 Java 源码更新过就重新打包（**首次约 1~2 分钟**，Maven 要下依赖，期间没有输出是正常的）。
+
+预期输出（真实日志，节选）：
+
+```
+· 打包网关（首次约 1~2 分钟，Maven 要下载依赖；之后是增量）…
+· 内核 :8078  ·  网关 :8091
+──── 1/2 启动内核 ────
+INFO:     Uvicorn running on http://127.0.0.1:8078
+✓ 内核就绪
+──── 2/2 启动网关 ────
+Netty started on port 8091 (http)
+Started GatewayApplication in 1.048 seconds
+✓ 网关就绪
+```
+
+然后打开 **http://127.0.0.1:8091/**。**Ctrl-C 或直接关掉终端窗口**，两个服务一起收走，不留孤儿进程。
+
+```bash
 open http://127.0.0.1:8091/
 ```
 
-`start.sh` 会自动处理三件容易忘的事：`.env` 没配会提示、venv 没建会建、
-jar 过期（改过 Java 或演示页）会重新打包。**Ctrl-C 或直接关掉终端窗口**
-都会把两个服务一起收走，不留孤儿进程。
-
-手工起、分开起仍然可以：
+想自己控制每个环节：
 
 ```bash
-./scripts/dev.sh          # 只起服务，不做上面那些检查
-./scripts/kernel.sh       # 只起内核（前台）
-./scripts/gateway.sh      # 只起网关（前台）
-```
-
-命令行方式：
-
-```bash
-./.venv/bin/devpilot run "写一个小工具：把整数列表去重并升序排列，带单元测试"
-./.venv/bin/devpilot ls
-./.venv/bin/devpilot show <task_id>
-./.venv/bin/devpilot pipeline        # 打印流水线结构
-```
-
-测试：
-
-```bash
-.venv/bin/python -m pytest -q              # 内核 146 个测试，约 6 秒
-cd gateway && mvn -B test                 # 网关 69 个测试
-./scripts/build.sh                        # 打包网关 jar（**skipTests**，只打包）
+./scripts/build.sh        # 只打包网关（首次、或改了 Java / 演示页之后）
+./scripts/dev.sh          # 内核 + 网关一起起，不做前面那些检查
+./scripts/kernel.sh       # 只起内核（:8078）
+./scripts/gateway.sh      # 只起网关（:8091）
 ```
 
 > 注意顺序：`dev.sh` 跑的是**打包好的 jar**，不是源码。
-> 改了 Java 代码或演示页之后必须重新 `./scripts/build.sh`，
-> 否则你会对着旧代码调试 —— 表现是"明明改对了却没生效"。
+> 改了 Java 或 `gateway/src/main/resources/static/` 之后必须重新 `./scripts/build.sh`，
+> 否则你会对着旧代码调试 —— 表现是「明明改对了却没生效」。
+
+### 第 5 步：验证它真的在工作
+
+```bash
+curl -s --noproxy '*' http://127.0.0.1:8091/api/health
+```
+
+预期能看到 `"ok":true`，以及 `"kernel":{"ok":true,"llm_available":true,...}`。
+
+跑一条真实交付（**不经过服务，直接命令行**，约 1 分钟，会真的写文件到 `var/workspaces/`）：
+
+```bash
+.venv/bin/python -m devpilot.cli run "写一个小工具：把整数列表去重并升序排列，带单元测试"
+```
+
+`--approve` 三个取值：`auto`（默认，自动放行）、`ask`（命令行问你）、`skip`（直接跳过审批）。
+跑完用 `ls` / `show <task_id>` 看任务与产物。
+
+### 评测与测试
+
+```bash
+.venv/bin/python -m pytest -q             # 内核 146 个测试，约 6 秒
+cd gateway && mvn -B test                 # 网关 69 个测试
+./scripts/build.sh                        # 打包网关 jar（skipTests，只打包）
+```
+
+### 出问题怎么查
+
+| 现象 | 原因 | 怎么办 |
+|---|---|---|
+| `DEVPILOT_API_KEY 还是占位符` | 没填 key | 本项目没有降级路径，必须填；只想跑测试的话可以跳过 |
+| `找不到 mvn` / `mvn: command not found` | 没装 Maven | 装 JDK 21 + Maven 3.9+，或把免安装版放到与仓库平级的 `../.tools/`（脚本会自动 `source ../.tools/env.sh`） |
+| 卡在「打包网关…」超过 2 分钟 | Maven 首次下载依赖 | 正常，等它；完整日志在 `/tmp/devpilot-build.log` |
+| `Port 8091 was already in use` | 上次没退干净 | `lsof -ti tcp:8091 \| xargs kill`，或 `GATEWAY_PORT=8092 ./start.sh` |
+| 网关日志 `Unable to load ...MacOSDnsServerAddressStreamProvider`（ERROR） | netty 的 macOS DNS 原生库没打进来 | **无害**，已自动回退系统 DNS |
+| 内核日志 `GET /health 401 Unauthorized` | `dev.sh` 的健康探测不带内部 token | **正常**，能返回 401 就说明内核已就绪 |
+| 任务一直卡在「等待审批」 | 服务模式下没人点审批 | 在演示页点通过，或调 `DEVPILOT_APPROVAL_TIMEOUT`（**必须与网关的 `wait-timeout-seconds` 一致**，否则网关会当失联重派，同一任务跑两遍） |
+| 覆盖率不达标反复打回 | 门禁在起作用 | 正常流程，最多打回 `DEVPILOT_MAX_CODEGEN` 次（默认 2），超了会带原因降级 |
+| 沙箱命令超时 | 单条命令超过 `DEVPILOT_SANDBOX_TIMEOUT` | 默认 120 秒，按需调大 |
 
 ---
 
